@@ -52,6 +52,8 @@ from routers.devices.router import devices
 from routers.endpoint.router import endpoints
 from routers.service.router import services
 from routers.device_type.router import device_types
+from routers.deployment_management.router import deployment_management
+from routers.deployment_management.dispatcher import process_deployment_dispatch_jobs
 
 # logger config
 logger = logging.getLogger("EdgeConfigAPI")
@@ -135,6 +137,16 @@ async def lifespan(_: FastAPI):
         )
     )
 
+    background_tasks.add(
+        asyncio.create_task(
+            create_periodic_task(
+                func=process_deployment_dispatch_jobs,
+                interval=1,
+                initial_delay=5,
+            )
+        )
+    )
+
     background_tasks.update(await _start_extensions())
 
     yield
@@ -204,6 +216,7 @@ app.include_router(compose_deployment)
 app.include_router(endpoints)
 app.include_router(services)
 app.include_router(device_types)
+app.include_router(deployment_management)
 app.include_router(active_deployment)
 app.include_router(module_config)
 app.include_router(smart_ems)
