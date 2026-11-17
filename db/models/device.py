@@ -1,4 +1,5 @@
 from sqlalchemy import TIMESTAMP, Column, ForeignKey, Integer, Text, func
+from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from db.base import Base
 
@@ -10,6 +11,21 @@ class Device(Base):
     device_data = Column(JSONB, nullable=False, default=dict)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
+    endpoints = relationship(
+        "Endpoint", back_populates="device", lazy="noload", passive_deletes=True
+    )
+    deployment_assignments = relationship(
+        "DeviceDeployment",
+        back_populates="device",
+        lazy="noload",
+        passive_deletes=True,
+    )
+    deployment_run_devices = relationship(
+        "DeploymentRunDevice",
+        back_populates="device",
+        lazy="noload",
+        passive_deletes=True,
+    )
 
 
 class DeviceSnapshotCache(Base):

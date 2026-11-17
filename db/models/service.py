@@ -3,7 +3,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from sqlalchemy import Text, func, ForeignKey
 from sqlalchemy.dialects.postgresql import TIMESTAMP, JSONB
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from db.base import Base
 
 
@@ -59,4 +59,7 @@ class Service(Base):
         server_default=func.now(),
         onupdate=func.now(),
         nullable=False,
+    )
+    endpoint: Mapped["Endpoint"] = relationship(
+        "Endpoint", back_populates="services", lazy="noload"
     )

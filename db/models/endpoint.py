@@ -64,3 +64,12 @@ class Endpoint(Base):
     )
 
     type: Mapped[EndpointType] = relationship("EndpointType", lazy="noload")
+    device: Mapped["Device"] = relationship(
+        "Device", back_populates="endpoints", lazy="noload"
+    )
+    services: Mapped[list["Service"]] = relationship(
+        "Service",
+        back_populates="endpoint",
+        lazy="noload",
+        passive_deletes=True,
+    )
