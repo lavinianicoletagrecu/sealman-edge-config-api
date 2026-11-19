@@ -166,6 +166,7 @@ class TargetRuleResponse(BaseModel):
     updated_at: datetime
     version: TargetRuleVersionResponse
     matching_devices: int
+    skipped_maintenance_devices: int = 0
     used_deployment: str | None = None
     used_version: int | None = None
     deployment_count: int = 0
@@ -178,6 +179,7 @@ class TargetDevice(BaseModel):
     metadata: dict[str, Any]
     endpoints: list[dict[str, Any]]
     services: list[str]
+    maintenance_mode: bool = False
 
 
 class TargetRuleValuesResponse(BaseModel):

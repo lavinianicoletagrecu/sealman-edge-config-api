@@ -1,4 +1,4 @@
-from sqlalchemy import TIMESTAMP, Column, ForeignKey, Integer, Text, func
+from sqlalchemy import TIMESTAMP, Boolean, Column, ForeignKey, Integer, Text, func
 from sqlalchemy.orm import relationship
 from sqlalchemy.dialects.postgresql import JSONB
 from db.base import Base
@@ -9,6 +9,7 @@ class Device(Base):
     device_id = Column(Text, primary_key=True)
     type_id = Column(Text, ForeignKey("device_types.type_id"), nullable=False)
     device_data = Column(JSONB, nullable=False, default=dict)
+    maintenance_mode = Column(Boolean, nullable=False, default=False, server_default="false")
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     endpoints = relationship(

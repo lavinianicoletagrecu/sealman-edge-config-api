@@ -163,7 +163,11 @@ async def _load_target_devices(
         )
     ).all()
     visible = {
-        device.device_id: (dict(device.device_data or {}), device_type)
+        device.device_id: (
+            dict(device.device_data or {}),
+            device_type,
+            device.maintenance_mode,
+        )
         for device, device_type in devices
         if device_filter(dict(device.device_data or {}))
     }
@@ -207,8 +211,9 @@ async def _load_target_devices(
             metadata=metadata,
             endpoints=endpoints_by_device[device_id],
             services=sorted(services_by_device[device_id]),
+            maintenance_mode=maintenance_mode,
         )
-        for device_id, (metadata, device_type) in visible.items()
+        for device_id, (metadata, device_type, maintenance_mode) in visible.items()
     ]
 
 
@@ -576,10 +581,14 @@ async def list_target_rules(
             continue
         snapshot = version.expression or {}
         excluded = set(snapshot.get("excluded_device_ids", []))
-        matched = sum(
-            1
+        matching_devices = [
+            device
             for device in devices
             if device.device_id not in excluded and _matches_rule(device, snapshot)
+        ]
+        matched = sum(not device.maintenance_mode for device in matching_devices)
+        skipped_maintenance = sum(
+            device.maintenance_mode for device in matching_devices
         )
         run = latest_run_by_rule.get(rule.id)
         run_deployment = deployments_by_id.get(run.deployment_id) if run else None
@@ -594,6 +603,7 @@ async def list_target_rules(
                 updated_at=version.created_at,
                 version=_rule_version_response(version),
                 matching_devices=matched,
+                skipped_maintenance_devices=skipped_maintenance,
                 used_deployment=run_deployment.name if run_deployment else None,
                 used_version=run_version.version if run_version else None,
                 deployment_count=total_runs,
@@ -978,13 +988,21 @@ async def create_deployment_run(
     if rule is None or rule.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Target rule not found")
 
-    devices = await _matching_devices_for_rule(
+    matching_devices = await _matching_devices_for_rule(
         session, rule_version, device_read, endpoint_read
     )
+    devices = [
+        device for device in matching_devices if not device.maintenance_mode
+    ]
     if not devices:
+        detail = (
+            "All devices matching the selected target rule are in maintenance mode"
+            if matching_devices
+            else "The selected target rule currently matches no visible devices"
+        )
         raise HTTPException(
             status_code=422,
-            detail="The selected target rule currently matches no visible devices",
+            detail=detail,
         )
 
     device_ids = sorted({device.device_id for device in devices})
