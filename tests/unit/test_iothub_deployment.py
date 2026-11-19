@@ -1,7 +1,10 @@
+import json
+
 import httpx
 from unittest.mock import AsyncMock
 from urllib.parse import urlparse
 
+from exceptions import APIError
 import routers.deployment_management.iothub_deployment as iothub_deployment
 from routers.deployment_management.iothub_deployment import (
     _retry_after_seconds,
@@ -56,9 +59,120 @@ def test_build_module_twin_desired_converts_saved_iot_edge_definition():
     assert "properties.desired" not in edge_agent["modules"]["sample"]
     assert edge_agent["modules"]["sample"]["version"] == "1.1"
     assert edge_agent["modules"]["sample"]["startupOrder"] == 10
-    assert edge_agent["modules"]["sample"]["settings"]["imagePullPolicy"] == "on-create"
+    assert edge_agent["modules"]["sample"]["imagePullPolicy"] == "on-create"
+    assert "imagePullPolicy" not in edge_agent["modules"]["sample"]["settings"]
     assert edge_hub["storeAndForwardConfiguration"]["timeToLiveSecs"] == 3600
     assert edge_hub["routes"]["upstream"] == "FROM /messages/* INTO $upstream"
+
+
+def test_private_registry_credentials_are_added_only_to_edge_agent_runtime(monkeypatch):
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_HOST", "geaeureka.azurecr.io"
+    )
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_USERNAME", "registry-user"
+    )
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_PASSWORD", "registry-password"
+    )
+
+    edge_agent, _ = build_module_twin_desired(
+        {
+            "runtime": {
+                "edge_agent": {"image": "mcr.microsoft.com/agent:1.5"},
+                "edge_hub": {"image": "mcr.microsoft.com/hub:1.5"},
+            },
+            "modules": [
+                {
+                    "name": "private",
+                    "image": "geaeureka.azurecr.io/conncheck:2.0.3",
+                    "status": "running",
+                    "restart_policy": "always",
+                }
+            ],
+        }
+    )
+
+    assert edge_agent["runtime"]["settings"]["registryCredentials"] == {
+        "deployment-registry": {
+            "address": "geaeureka.azurecr.io",
+            "username": "registry-user",
+            "password": "registry-password",
+        }
+    }
+
+
+def test_private_registry_credentials_are_not_added_for_public_images(monkeypatch):
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_HOST", "geaeureka.azurecr.io"
+    )
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_USERNAME", "registry-user"
+    )
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_PASSWORD", "registry-password"
+    )
+
+    edge_agent, _ = build_module_twin_desired(
+        {
+            "runtime": {
+                "edge_agent": {"image": "mcr.microsoft.com/agent:1.5"},
+                "edge_hub": {"image": "mcr.microsoft.com/hub:1.5"},
+            },
+            "modules": [],
+        }
+    )
+
+    assert "registryCredentials" not in edge_agent["runtime"]["settings"]
+
+
+def test_private_registry_image_requires_configured_credentials(monkeypatch):
+    monkeypatch.setattr(
+        iothub_deployment, "DEPLOYMENT_REGISTRY_HOST", "geaeureka.azurecr.io"
+    )
+    monkeypatch.setattr(iothub_deployment, "DEPLOYMENT_REGISTRY_USERNAME", "")
+    monkeypatch.setattr(iothub_deployment, "DEPLOYMENT_REGISTRY_PASSWORD", "")
+
+    try:
+        build_module_twin_desired(
+            {
+                "runtime": {
+                    "edge_agent": {"image": "mcr.microsoft.com/agent:1.5"},
+                    "edge_hub": {"image": "mcr.microsoft.com/hub:1.5"},
+                },
+                "modules": [
+                    {
+                        "name": "private",
+                        "image": "geaeureka.azurecr.io/conncheck:2.0.3",
+                        "status": "running",
+                        "restart_policy": "always",
+                    }
+                ],
+            }
+        )
+    except APIError as error:
+        assert error.status_code == 503
+    else:
+        raise AssertionError("Expected missing private registry credentials to fail")
+
+
+def test_create_options_are_stringified_json_and_preserve_large_environment_value():
+    large_value = "x" * 2603
+    options = {"Env": [f"CONFIG={large_value}"]}
+
+    settings = iothub_deployment._module_settings("example/module:1", options)
+
+    assert json.loads(settings["createOptions"]) == options
+    assert len(settings["createOptions"].encode()) > 2600
+
+
+def test_create_options_reject_non_json_numbers():
+    try:
+        iothub_deployment._module_settings("example/module:1", {"value": float("nan")})
+    except APIError as error:
+        assert error.status_code == 422
+    else:
+        raise AssertionError("Expected non-JSON CreateOptions values to fail")
 
 
 def test_retry_after_seconds_is_preserved_without_shortening():

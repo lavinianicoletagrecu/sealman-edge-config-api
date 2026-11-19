@@ -9,7 +9,12 @@ from typing import Any
 import httpx
 
 from async_requests import client
-from constants import IOT_HUB_NAME
+from constants import (
+    DEPLOYMENT_REGISTRY_HOST,
+    DEPLOYMENT_REGISTRY_PASSWORD,
+    DEPLOYMENT_REGISTRY_USERNAME,
+    IOT_HUB_NAME,
+)
 from exceptions import APIError
 from helper import encode_iothub_id, get_iothub_auth_headers
 
@@ -41,11 +46,48 @@ def _env_properties(values: dict[str, str]) -> dict[str, dict[str, str]]:
 
 
 def _module_settings(image: str, create_options: dict[str, Any]) -> dict[str, str]:
+    if not isinstance(create_options, dict):
+        raise APIError("Docker createOptions must be a JSON object", status_code=422)
+    try:
+        serialized_create_options = json.dumps(
+            create_options,
+            separators=(",", ":"),
+            sort_keys=True,
+            allow_nan=False,
+        )
+    except (TypeError, ValueError) as error:
+        raise APIError(
+            "Docker createOptions must contain only JSON-compatible values",
+            status_code=422,
+        ) from error
     return {
         "image": image,
-        "createOptions": json.dumps(
-            create_options, separators=(",", ":"), sort_keys=True
-        ),
+        "createOptions": serialized_create_options,
+    }
+
+
+def _image_registry(image: str) -> str | None:
+    first_segment = image.strip().split("/", 1)[0].lower()
+    if "." in first_segment or ":" in first_segment or first_segment == "localhost":
+        return first_segment
+    return None
+
+
+def _registry_credentials(images: list[str]) -> dict[str, dict[str, str]]:
+    registry = DEPLOYMENT_REGISTRY_HOST.strip().lower().rstrip("/")
+    if not registry or not any(_image_registry(image) == registry for image in images):
+        return {}
+    if not DEPLOYMENT_REGISTRY_USERNAME or not DEPLOYMENT_REGISTRY_PASSWORD:
+        raise APIError(
+            "Credentials for the configured private image registry are not configured",
+            status_code=503,
+        )
+    return {
+        "deployment-registry": {
+            "address": registry,
+            "username": DEPLOYMENT_REGISTRY_USERNAME,
+            "password": DEPLOYMENT_REGISTRY_PASSWORD,
+        }
     }
 
 
@@ -54,6 +96,20 @@ def build_module_twin_desired(definition: dict[str, Any]) -> tuple[dict, dict]:
     runtime = definition["runtime"]
     edge_agent = runtime["edge_agent"]
     edge_hub = runtime["edge_hub"]
+    definition_modules = definition.get("modules", [])
+    registry_credentials = _registry_credentials(
+        [
+            edge_agent["image"],
+            edge_hub["image"],
+            *(module["image"] for module in definition_modules),
+        ]
+    )
+    runtime_settings: dict[str, Any] = {
+        "minDockerVersion": "v1.25",
+        "loggingOptions": "",
+    }
+    if registry_credentials:
+        runtime_settings["registryCredentials"] = registry_credentials
 
     system_modules: dict[str, dict[str, Any]] = {
         "edgeAgent": {
@@ -76,7 +132,7 @@ def build_module_twin_desired(definition: dict[str, Any]) -> tuple[dict, dict]:
     }
 
     modules: dict[str, dict[str, Any]] = {}
-    for module in definition.get("modules", []):
+    for module in definition_modules:
         desired_module: dict[str, Any] = {
             "version": "1.1",
             "type": "docker",
@@ -90,17 +146,14 @@ def build_module_twin_desired(definition: dict[str, Any]) -> tuple[dict, dict]:
         if module.get("startup_order") is not None:
             desired_module["startupOrder"] = module["startup_order"]
         if module.get("image_pull_policy"):
-            desired_module["settings"]["imagePullPolicy"] = module["image_pull_policy"]
+            desired_module["imagePullPolicy"] = module["image_pull_policy"]
         modules[module["name"]] = desired_module
 
     edge_agent_desired = {
         "schemaVersion": "1.1",
         "runtime": {
             "type": "docker",
-            "settings": {
-                "minDockerVersion": "v1.25",
-                "loggingOptions": "",
-            },
+            "settings": runtime_settings,
         },
         "systemModules": system_modules,
         "modules": modules,

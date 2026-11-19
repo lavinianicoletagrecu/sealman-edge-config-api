@@ -215,6 +215,25 @@ history references use `ON DELETE RESTRICT` so referenced records cannot be
 removed; container details cascade with their version, and run-device snapshots
 cascade with their run.
 
+## Deployment image catalog
+
+The IoT Edge module editor can browse repositories and tags in the configured
+Azure Container Registry. The API reads `DEPLOYMENT_REGISTRY_HOST`,
+`DEPLOYMENT_REGISTRY_USERNAME`, and `DEPLOYMENT_REGISTRY_PASSWORD` from its
+environment and proxies read-only catalog requests through the Azure
+Container Registry data-plane API. Credentials and registry tokens remain on
+the API and are never returned to the browser. When a deployment references
+that registry, the API injects the configured credentials into
+`$edgeAgent.runtime.settings.registryCredentials` in the desired twin so the
+device can pull private images. This sends the registry credentials to IoT Hub
+and the target device; use a least-privilege registry account. The browser
+continues to allow manually entered images, including Microsoft Container
+Registry images.
+
+The API requires catalog/metadata-read permission on the registry. Local
+development deployments that load the platform `.env` should provide these
+variables there; do not commit registry credentials.
+
 ## Data currently present
 
 The following row counts were read from the live database when this document

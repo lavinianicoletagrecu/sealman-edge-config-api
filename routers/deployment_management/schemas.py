@@ -273,3 +273,13 @@ class DeploymentHistoryResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+
+
+class RegistryRepositoriesResponse(BaseModel):
+    registry: str
+    repositories: list[str]
+
+
+class RegistryTagsResponse(BaseModel):
+    repository: str
+    tags: list[str]

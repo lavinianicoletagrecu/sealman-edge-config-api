@@ -52,12 +52,19 @@ from .schemas import (
     DeploymentWrite,
     IoTEdgeDefinition,
     MessageResponse,
+    RegistryRepositoriesResponse,
+    RegistryTagsResponse,
     TargetCondition,
     TargetDevice,
     TargetRuleResponse,
     TargetRuleValuesResponse,
     TargetRuleVersionResponse,
     TargetRuleWrite,
+)
+from .registry_catalog import (
+    RegistryCatalogError,
+    list_repositories,
+    list_repository_tags,
 )
 
 
@@ -68,6 +75,31 @@ deployment_management = BaseAPIRouter(
 
 _config_read = Depends(ABACPermissionCheck(Platform.CONFIG_READ, device_path=None))
 _config_write = Depends(ABACPermissionCheck(Platform.CONFIG_WRITE, device_path=None))
+
+
+@deployment_management.get(
+    "/registry/repositories", response_model=RegistryRepositoriesResponse
+)
+async def get_registry_repositories(_=_config_read):
+    try:
+        return await list_repositories()
+    except RegistryCatalogError as error:
+        raise HTTPException(
+            status_code=error.status_code, detail=str(error)
+        ) from error
+
+
+@deployment_management.get(
+    "/registry/repositories/{repository:path}/tags",
+    response_model=RegistryTagsResponse,
+)
+async def get_registry_repository_tags(repository: str, _=_config_read):
+    try:
+        return await list_repository_tags(repository)
+    except RegistryCatalogError as error:
+        raise HTTPException(
+            status_code=error.status_code, detail=str(error)
+        ) from error
 
 
 def _deployment_response(
